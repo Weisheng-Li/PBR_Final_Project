@@ -1,0 +1,169 @@
+**Assignment 1 Report**
+
+Student name: XXXX
+
+(##) About this template
+
+* Structure your report using numbers and titles following those of the assignment.
+
+* For every task include all images you generated. dirt will generate both an `.hdr` and an sRGB tonemapped `.png` image of your rendering. Use the `.png` in the comparisons in your report.
+
+* For tasks where we provide a reference image, include a comparison of your output to the reference (see examples of this below)
+
+* Include descriptions of encountered problems, a list of external libraries that you used (if applicable) and the time you spent on each task.
+
+For an overview of Markdeep and its syntax, see the [official demo document](https://casual-effects.com/markdeep/features.md.html) and
+the associated [source code](https://casual-effects.com/markdeep/features.md.html?noformat).
+
+(##) Feedback
+
+Use this section to provide feedback about the assignment.
+
+(##) Task 1: Generating rays and using JSON
+
+Manual Ray Images:
+<div class="twentytwenty-container">
+    <img src="images/01_manual_ray_image-ref.png" alt="Reference">
+    <img src="images/ADD_YOUR_IMAGE_HERE" alt="Mine">
+</div>
+
+Camera Ray Images:
+<div class="twentytwenty-container">
+    <img src="images/01_camera_ray_image-ref.png" alt="Reference">
+    <img src="images/ADD_YOUR_IMAGE_HERE" alt="Mine">
+</div>
+
+(##) Task 2: Transforms
+
+<div class="twentytwenty-container">
+	<img src="images/01_xformed_camera_ray_image-ref.png" alt="Reference">
+    <img src="images/ADD_YOUR_IMAGE_HERE" alt="Mine">
+</div>
+
+(##) Task 3: Spheres
+
+<div class="twentytwenty-container">
+	<img src="images/01_xformed_camera_sphere_image-ref.png" alt="Reference">
+    <img src="images/ADD_YOUR_IMAGE_HERE" alt="Mine">
+</div>
+
+(##) Task 4, 5, 6: Materials, Recursive Ray Tracing, and Scene Renderer
+
+Recursive Ray Tracing:
+<div class="twentytwenty-container">
+	<img src="images/01_recursive_raytracing-ref.png" alt="Reference">
+    <img src="images/ADD_YOUR_IMAGE_HERE" alt="Mine">
+</div>
+
+Plane Scene:
+<div class="twentytwenty-container">
+	<img src="images/01_plane-ref.png" alt="Reference">
+    <img src="images/ADD_YOUR_IMAGE_HERE" alt="Mine">
+</div>
+
+
+Balls Scene:
+<div class="twentytwenty-container">
+	<img src="images/02_balls-ref.png" alt="Reference">
+    <img src="images/ADD_YOUR_IMAGE_HERE" alt="Mine">
+</div>
+
+Reflective Scene:
+<div class="twentytwenty-container">
+	<img src="images/03_refl-ref.png" alt="Reference">
+    <img src="images/ADD_YOUR_IMAGE_HERE" alt="Mine">
+</div>
+
+Refractive Scene:
+<div class="twentytwenty-container">
+	<img src="images/04_refr-ref.png" alt="Reference">
+    <img src="images/ADD_YOUR_IMAGE_HERE" alt="Mine">
+</div>
+
+Quad Light:
+<div class="twentytwenty-container">
+	<img src="images/05_quad-light-ref.png" alt="Reference">
+    <img src="images/ADD_YOUR_IMAGE_HERE" alt="Mine">
+</div>
+
+Cornell Box:
+<div class="twentytwenty-container">
+	<img src="images/06_cornell-box-ref.png" alt="Reference">
+    <img src="images/ADD_YOUR_IMAGE_HERE" alt="Mine">
+</div>
+
+(##) Task 7: Ray-Triangle Intersection
+
+Your image will be significantly noisier than the reference unless you choose to render with a higher number of samples. The reference below uses 1024 samples per pixel.
+<div class="twentytwenty-container">
+	<img src="images/simple-geometry-ref.png" alt="Reference">
+    <img src="images/ADD_YOUR_IMAGE_HERE" alt="Mine">
+</div>
+
+
+(##) Task 8: Solid Textures
+
+Constant Texture:
+<div class="twentytwenty-container">
+	<img src="images/constant-cornell-box-ref.png" alt="Reference">
+    <img src="images/ADD_YOUR_IMAGE_HERE" alt="Mine">
+</div>
+
+Checkerboard Texture:
+<div class="twentytwenty-container">
+	<img src="images/checker-ref.png" alt="Reference">
+    <img src="images/ADD_YOUR_IMAGE_HERE" alt="Mine">
+</div>
+
+Perlin Noise:
+<div class="twentytwenty-container">
+	<img src="images/marble-ref.png" alt="Reference">
+    <img src="images/ADD_YOUR_IMAGE_HERE" alt="Mine">
+</div>
+
+
+(##) Task 9: Image Textures
+
+UV-Mapping Spheres:
+<div class="twentytwenty-container">
+	<img src="images/earth-ref.png" alt="Reference">
+    <img src="images/ADD_YOUR_IMAGE_HERE" alt="Mine">
+</div>
+
+UV-Mapping Quads:
+<div class="twentytwenty-container">
+	<img src="images/textured-box-ref.png" alt="Reference">
+    <img src="images/ADD_YOUR_IMAGE_HERE" alt="Mine">
+</div>
+
+UV-Mapping Triangles:
+
+Your image will be significantly noisier than the reference unless you choose to render with a higher number of samples. The reference below uses 1024 samples per pixel.
+<div class="twentytwenty-container">
+	<img src="images/teapot-5spp.png" alt="Reference">
+    <img src="images/ADD_YOUR_IMAGE_HERE" alt="Mine">
+</div>
+
+(##) Task 10: Blend Materials
+
+<div class="twentytwenty-container">
+	<img src="images/blend-ref.png" alt="Reference">
+    <img src="images/ADD_YOUR_IMAGE_HERE" alt="Mine">
+</div>
+
+(##) Task 11: Interesting Scene
+
+<div>
+	<img src="images/ADD_YOUR_IMAGE_HERE.png">
+</div>
+
+<!--- Markdeep & image comparison library - probably no need to change anything below -->
+<style class="fallback">body{visibility:hidden;white-space:pre;font-family:monospace}</style><script src="../resources/markdeep.min.js"></script><script>window.alreadyProcessedMarkdeep||(document.body.style.visibility="visible")</script>
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.0/jquery.min.js"></script>
+<script src="../resources/jquery.event.move.js"></script>
+<script src="../resources/jquery.twentytwenty.js"></script>
+<link href="../resources/offcanvas.css" rel="stylesheet">
+<link href="../resources/twentytwenty.css" rel="stylesheet" type="text/css" />
+<script>
+$(window).load(function(){$(".twentytwenty-container").twentytwenty({default_offset_pct: 0.5});});
+</script>
