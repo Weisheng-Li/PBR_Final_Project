@@ -41,6 +41,86 @@ float HenyeyGreenstein::sample(const Vec3f &wo, Vec3f &wi, const Vec2f &u) const
   return p(wo, wi);
 }
 
+// !!! Be aware that DIRT sample wi given wo, but SGGX paper sample wo given wi
+
+// Specular SGGX phase function, serves as both the evaluation and PDF
+float SGGXPhase::p(const Vec3f &wo, const Vec3f &wi) const {
+  Vec3f half_vec = normalize(normalize(wo) + normalize(wi));
+  float result = NDF(half_vec) / (4 * projection(wo));
+  return NDF(half_vec) / (4 * projection(wo));
+}
+
+float SGGXPhase::sample(const Vec3f &wo, Vec3f &wi, const Vec2f &u) const {
+  assert(abs(length(wo) - 1.f) < 0.001);
+
+  // Project S into the basis
+  Mat44f S_local = Mat44f(0.0f);
+
+  ONB<float> onb;
+  onb.build_from_w(wo);
+  Vec4f wi4 = {onb.w, 0.f};
+  Vec4f wj4 = {onb.v, 0.f};
+  Vec4f wk4 = {onb.u, 0.f};
+
+  // (row, col)
+  S_local(0, 0) = dot(wk4, S * wk4);
+  S_local(0, 1) = dot(wk4, S * wj4);
+  S_local(0, 2) = dot(wk4, S * wi4);
+  S_local(1, 0) = dot(wk4, S * wj4);
+  S_local(1, 1) = dot(wj4, S * wj4);
+  S_local(1, 2) = dot(wj4, S * wi4);
+  S_local(2, 0) = dot(wk4, S * wi4);
+  S_local(2, 1) = dot(wj4, S * wi4);
+  S_local(2, 2) = dot(wi4, S * wi4);
+
+  Vec3f Mk = {
+    sqrt(determinant3x3(S_local) / (S_local(1,1)*S_local(2,2) - S_local(1,2) * S_local(1,2))),
+    0,
+    0,
+  };
+
+  Vec3f Mj = {
+    -(S_local(2,0)*S_local(2,1) - S_local(0,1)*S_local(2,2)) / 
+    sqrt(S_local(1,1)*S_local(2,2) - S_local(1,2)*S_local(1,2)),
+    sqrt(S_local(1,1)*S_local(2,2) - S_local(1,2)*S_local(1,2)),
+    0,
+  };
+  Mj *= 1 / sqrt(S_local(2,2));
+
+  Vec3f Mi = {
+    S_local(0,2), S_local(1,2), S_local(2,2)
+  };
+  Mi *= 1 / sqrt(S_local(2,2));
+
+  // Sample on sphere (maybe?)
+  float uu = sqrt(u.x) * cos(2 * M_PI * u.y);
+  float vv =  sqrt(u.x) * sin(2 * M_PI * u.y);
+  float ww = sqrt(1 - uu*uu - vv*vv);
+
+  // compute the normal
+  Vec3f M_sum = uu * Mk + vv * Mj + ww * Mi;
+  Vec3f n = normalize(onb.toWorld(M_sum));
+
+  // now simply reflect around the normal (since micro-phase function is dirac delta)
+  wi = -wo + 2 * n * dot(wo, n);
+
+  return p(wo, wi);
+}
+
+float SGGXPhase::NDF(const Vec3f &wh) const {
+  Vec3f wh_n = normalize(wh);
+  Vec4f wh4 = {wh_n, 0.f};
+  float wSw = dot(wh4, inverse3x3(S) * wh4);
+  float denom = M_PI * sqrt(determinant3x3(S)) * wSw * wSw;
+  return 1.f / denom;
+}
+
+float SGGXPhase::projection(const Vec3f &wi) const {
+  Vec3f wi_n = normalize(wi);
+  Vec4f wi4 = {wi_n, 0.f};
+  return sqrt(dot(wi4, S * wi4));
+}
+
 HomogeneousMedium::HomogeneousMedium(const json &j)
 {
   phase = parsePhase(j.at("phase"));
@@ -129,6 +209,55 @@ float PerlinMedium::density(const Vec3f &p) const
 {
   Vec3f pScaled(p.x * spatialScale.x, p.y * spatialScale.y, p.z * spatialScale.z);
   return sigma_t * std::max(0.0f, densityScale * perlin.noise(pScaled) + densityOffset);
+}
+
+HomogeneousAnisotropicMedium::HomogeneousAnisotropicMedium(const json &j)
+{
+  rho = j.value("rho", rho);
+  albedo = j.value("albedo", albedo);
+
+  // identity matrix without the last diagonal 1
+  S = Mat44f(1);
+  S(3,3) = 0;
+
+  phase = make_shared<SGGXPhase>(S);
+}
+
+float HomogeneousAnisotropicMedium::Tr(const Ray3f &ray_, Sampler &sampler) const
+{
+  Ray3f ray = ray_.normalizeRay();
+  return std::exp(-sigma_t(-ray.d) * (ray.maxt - ray.mint));
+}
+
+float HomogeneousAnisotropicMedium::Sample(const Ray3f &ray_, Sampler &sampler, MediumInteraction &mi) const
+{
+  Ray3f ray = ray_.normalizeRay();
+  float dist = -std::log(1.0f - sampler.next1D()) / sigma_t(-ray.d);
+  float t = std::min(dist, ray.maxt);
+  bool sampledMedium = t < ray.maxt;
+  if (sampledMedium)
+    mi = MediumInteraction(ray(t), -ray.d, this);
+  return sampledMedium ? sigma_s(-ray.d) / sigma_t(-ray.d) : 1.0f;
+}
+
+// useless. In homogeneous medium density doesn't depend on p.
+float HomogeneousAnisotropicMedium::density(const Vec3f &p) const
+{
+  return rho;
+}
+
+float HomogeneousAnisotropicMedium::sigma_t(const Vec3f &wi) const {
+  return rho * projection(wi);
+}
+
+float HomogeneousAnisotropicMedium::sigma_s(const Vec3f &wi) const {
+  return albedo * rho * projection(wi);
+}
+
+float HomogeneousAnisotropicMedium::projection(const Vec3f &wi) const {
+  Vec3f wi_n = normalize(wi);
+  Vec4f wi4 = {wi_n, 0};
+  return sqrt(dot(wi4, S * wi4));
 }
 
 std::shared_ptr<const Medium> MediumInterface::getMedium(const Ray3f ray, const HitInfo &hit) const

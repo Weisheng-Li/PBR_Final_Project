@@ -150,6 +150,8 @@ shared_ptr<Medium> parseMedium(const json &j)
         return make_shared<HomogeneousMedium>(j);
     else if (type == "perlin")
         return make_shared<PerlinMedium>(j);
+    else if (type == "anisotropic") 
+        return make_shared<HomogeneousAnisotropicMedium>(j);
     else
         throw DirtException("Unknown 'medium' type '%s' here:\n%s.", type, j.dump(4));
 }

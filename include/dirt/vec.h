@@ -640,6 +640,15 @@ Mat44<T> adjugate(const Mat44<T> & m)
 }
 
 template <typename T> 
+Mat44<T> adjugate3x3 (const Mat44<T> & m)
+{
+    return {{m.m11*m.m22 - m.m12*m.m21   , -(m.m10*m.m22 - m.m12*m.m20), m.m10*m.m21 - m.m11*m.m20      , 0},
+            {-(m.m01*m.m22 - m.m02*m.m21), m.m00*m.m22 - m.m02*m.m20   ,    -(m.m00*m.m21 - m.m01*m.m20), 0},
+            {m.m01*m.m12 - m.m02*m.m11   , -(m.m00*m.m12 - m.m02*m.m10), m.m00*m.m11 - m.m01*m.m10      , 0},
+            {0                           , 0                           , 0                              , 0}};
+}
+
+template <typename T> 
 T determinant(const Mat44<T> & m)
 { 
     return m.m00*(m.m11*m.m22*m.m33 + m.m13*m.m21*m.m32 + m.m12*m.m23*m.m31 - m.m11*m.m23*m.m32 - m.m12*m.m21*m.m33 - m.m13*m.m22*m.m31)
@@ -648,10 +657,22 @@ T determinant(const Mat44<T> & m)
          + m.m30*(m.m01*m.m13*m.m22 + m.m02*m.m11*m.m23 + m.m03*m.m12*m.m21 - m.m01*m.m12*m.m23 - m.m03*m.m11*m.m22 - m.m02*m.m13*m.m21); 
 }
 
+template <typename T>
+T determinant3x3(const Mat44<T> & m)
+{
+    return m.m00*m.m11*m.m22 + m.m01*m.m12*m.m20 + m.m02*m.m10*m.m21 - m.m02*m.m11*m.m20 - m.m01*m.m10*m.m22 - m.m00*m.m12*m.m21;
+}
+
 template <typename T> 
 inline Mat44<T> inverse(const Mat44<T> & m)
 {
     return adjugate(m)/determinant(m);
+}
+
+template <typename T> 
+inline Mat44<T> inverse3x3(const Mat44<T> & m)
+{
+    return adjugate3x3(m)/determinant3x3(m);
 }
 
 

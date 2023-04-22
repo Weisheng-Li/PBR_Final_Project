@@ -16,12 +16,15 @@
     along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
 
+#define _USE_MATH_DEFINES
+
 #include <dirt/material.h>
 #include <dirt/texture.h>
 #include <dirt/parser.h>
 #include <dirt/scene.h>
 #include <dirt/surface.h>
 #include <dirt/onb.h>
+#include <cmath>
 
 shared_ptr<const Material> Material::defaultMaterial()
 {
