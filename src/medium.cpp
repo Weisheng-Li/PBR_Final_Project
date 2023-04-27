@@ -215,10 +215,32 @@ HomogeneousAnisotropicMedium::HomogeneousAnisotropicMedium(const json &j)
 {
   rho = j.value("rho", rho);
   albedo = j.value("albedo", albedo);
+  
+  if (j.contains("normal")) {
+    // Construct surface-like S
+    Vec3f n = j.value("normal", Vec3f(0,0,1));
+    n = normalize(n);
+    float roughness = j.value("roughness", 0.f);
+    Mat44f base = {
+      {n.x*n.x, n.x*n.y, n.x*n.z, 0},
+      {n.x*n.y, n.y*n.y, n.y*n.z, 0},
+      {n.x*n.z, n.y*n.z, n.z*n.z, 0},
+      {0      , 0      , 0      , 0}
+    };
 
-  // identity matrix without the last diagonal 1
-  S = Mat44f(1);
-  S(3,3) = 0;
+    Mat44f rough = {
+      {n.y*n.y + n.z*n.z, -n.x*n.y         , -n.x*n.z       , 0},
+      {-n.x*n.y         , n.x*n.x + n.z*n.z, -n.y*n.z       , 0},
+      {-n.x*n.z         , -n.y*n.z         , n.x*n.x+n.y*n.y, 0},
+      {0                , 0                , 0              , 0}
+    };
+
+    S = base + roughness*roughness*rough;
+  } else {
+    // isotropic S
+    S = Mat44f(1);
+    S(3,3) = 0;
+  }
 
   phase = make_shared<SGGXPhase>(S);
 }

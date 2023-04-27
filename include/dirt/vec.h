@@ -563,6 +563,12 @@ inline Mat44<T> operator*(const Mat44<T>& lhs, const Mat44<T>& rhs)
 }
 
 template <typename T> 
+inline Mat44<T> operator+(const Mat44<T>& lhs, const Mat44<T>& rhs)
+{
+    return Mat44<T>(lhs.x + rhs.x, lhs.y + rhs.y, lhs.z + rhs.z, lhs.w + rhs.w);
+}
+
+template <typename T> 
 inline Mat44<T> operator*(T a, const Mat44<T> & m)
 {
     return m * a;
