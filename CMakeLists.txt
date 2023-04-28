@@ -54,6 +54,7 @@ set(dirt_headers
     include/dirt/timer.h
     include/dirt/transform.h
     include/dirt/vec.h
+    include/dirt/layered.h
 )
 
 set(dirt_srcs

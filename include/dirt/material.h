@@ -20,6 +20,7 @@
 
 #include <dirt/fwd.h>
 #include <dirt/parser.h>
+#include <dirt/layered.h>
 #include <stdlib.h>
 
 struct ScatterRecord
@@ -282,4 +283,35 @@ public:
 
 	shared_ptr<const Texture> albedo;     ///< The reflective color (fraction of light that is reflected per color channel).
 	float sigma = 0.35f;
+};
+
+class Layered : public Material
+{
+public:
+	Layered(const json & j = json::object());
+
+	bool scatter(const Ray3f &ray, const HitInfo &hit, const Vec2f &sample, Color3f &attenuation, Ray3f &scattered) const override;
+
+	bool sample(const Vec3f & dirIn, const HitInfo &hit, const Vec2f &sample, ScatterRecord &srec) const override;
+	
+	Color3f eval(const Vec3f & dirIn, const Vec3f & scattered, const HitInfo & hit) const override;
+
+	float pdf(const Vec3f & dirIn, const Vec3f & scattered, const HitInfo & hit) const override;
+
+	/* Layered structure */
+    int nb_layers;
+    std::vector<float> m_depths;
+    std::vector<float> m_sigma_a;
+    std::vector<float> m_sigma_s;
+    std::vector<float> m_gs;
+
+    /* Associated maps */
+	std::vector<Color3f> m_tex_etas;
+    std::vector<Color3f> m_tex_kappas;
+    std::vector<float> m_tex_alphas;
+
+    /* Precomputed data */
+    FGD m_FGD;
+    bool m_useFGD;
+    bool m_useTIR;
 };

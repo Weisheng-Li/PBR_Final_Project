@@ -130,6 +130,8 @@ shared_ptr<Material> parseMaterial(const json & j)
         return make_shared<Beckmann>(j);
     else if (type == "oren-nayar")
         return make_shared<OrenNayar>(j);
+    else if (type == "layered")
+        return make_shared<Layered>(j);
 	else
 		throw DirtException("Unknown 'material' type '%s' here:\n%s.", type, j.dump(4));
 }

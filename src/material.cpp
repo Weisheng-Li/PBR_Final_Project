@@ -508,3 +508,57 @@ float OrenNayar::pdf(const Vec3f & dirIn, const Vec3f & scattered, const HitInfo
 {
    return max(0.0f, dot(scattered, hit.sn) / M_PI);
 }
+
+Layered::Layered(const json & j) {
+	nb_layers = j.value("nb_layers", 1);
+
+	// Add the external IOR (air)
+	m_tex_etas.push_back(Color3f(1.f));
+	m_tex_etas.push_back(Color3f(0.f));
+
+	for (auto it = j["layers"].begin(); it != j["layers"].end(); it++) {
+		Color3f eta_k = it.value().value("eta", Color3f(1.0f));
+		Color3f kappa_k = it.value().value("kappa", Color3f(0.0f));
+		float alpha_k = it.value().value("alpha", 0.0f);
+
+		// assume no participating media between interfaces yet
+		float depth = 0.0f;
+		float sigma_s = 0.0f;
+		float sigma_a = 0.0f;
+		float g = 0.9f;
+
+		// store them in the vector
+		m_tex_etas.push_back(eta_k);
+        m_tex_kappas.push_back(kappa_k);
+        m_tex_alphas.push_back(alpha_k);
+
+        // Update the media
+        m_depths.push_back(depth);
+        m_sigma_s.push_back(sigma_s);
+        m_sigma_a.push_back(sigma_a);
+        m_gs.push_back(g);
+	}
+
+	// load the FGD
+	m_FGD = FGD("data/FGD.bin");
+}
+
+bool Layered::scatter(const Ray3f &ray, const HitInfo &hit, const Vec2f &sample, Color3f &attenuation, Ray3f &scattered) const
+{
+	return false;
+}
+
+bool Layered::sample(const Vec3f & dirIn, const HitInfo &hit, const Vec2f &sample, ScatterRecord &srec) const
+{
+	return false;
+}
+
+Color3f Layered::eval(const Vec3f & dirIn, const Vec3f & scattered, const HitInfo & hit) const
+{
+	return Color3f(0.f, 0.f, 0.f);
+}
+
+float Layered::pdf(const Vec3f & dirIn, const Vec3f & scattered, const HitInfo & hit) const
+{
+	return 1.0f;
+}
