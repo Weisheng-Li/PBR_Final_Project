@@ -298,6 +298,10 @@ public:
 
 	float pdf(const Vec3f & dirIn, const Vec3f & scattered, const HitInfo & hit) const override;
 
+	void evalFresnel(float ct, float alpha, const Color3f& eta, const Color3f& kappa, Color3f& Rij, Color3f& Tij) const;
+
+	void computeAddingDoubling(float _cti, Color3f* coeffs, float* alphas, int& nb_valid) const;
+
 	/* Layered structure */
     int nb_layers;
     std::vector<float> m_depths;
@@ -306,9 +310,9 @@ public:
     std::vector<float> m_gs;
 
     /* Associated maps */
-	std::vector<Color3f> m_tex_etas;
-    std::vector<Color3f> m_tex_kappas;
-    std::vector<float> m_tex_alphas;
+	std::vector<Color3f> m_etas;
+    std::vector<Color3f> m_kappas;
+    std::vector<float> m_alphas;
 
     /* Precomputed data */
     FGD m_FGD;

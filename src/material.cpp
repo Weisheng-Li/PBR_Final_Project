@@ -513,8 +513,8 @@ Layered::Layered(const json & j) {
 	nb_layers = j.value("nb_layers", 1);
 
 	// Add the external IOR (air)
-	m_tex_etas.push_back(Color3f(1.f));
-	m_tex_etas.push_back(Color3f(0.f));
+	m_etas.push_back(Color3f(1.f));
+	m_etas.push_back(Color3f(0.f));
 
 	for (auto it = j["layers"].begin(); it != j["layers"].end(); it++) {
 		Color3f eta_k = it.value().value("eta", Color3f(1.0f));
@@ -528,9 +528,9 @@ Layered::Layered(const json & j) {
 		float g = 0.9f;
 
 		// store them in the vector
-		m_tex_etas.push_back(eta_k);
-        m_tex_kappas.push_back(kappa_k);
-        m_tex_alphas.push_back(alpha_k);
+		m_etas.push_back(eta_k);
+        m_kappas.push_back(kappa_k);
+        m_alphas.push_back(alpha_k);
 
         // Update the media
         m_depths.push_back(depth);
@@ -543,6 +543,205 @@ Layered::Layered(const json & j) {
 	m_FGD = FGD("data/FGD.bin");
 }
 
+/* Roughness to linear space conversions */
+//#define USE_BEST_FIT
+inline float roughnessToVariance(float a) {
+#ifdef USE_BEST_FIT
+   a = _clamp<float>(a, 0.0, 0.9999);
+   float a3 = powf(a, 1.1);
+   return a3 / (1.0f - a3);
+#else
+   return a / (1.0f-a);
+#endif
+}
+inline float varianceToRoughness(float v) {
+#ifdef USE_BEST_FIT
+   return powf(v / (1.0f + v), 1.0f/1.1f);
+#else
+   return v / (1.0f+v);
+#endif
+}
+
+inline float avg(const Color3f& color) {
+	return (1.f / 3.f) * (color.r + color.g + color.b);
+};
+
+// Source: https://stackoverflow.com/questions/27229371/inverse-error-function-in-c
+float erfinv(float x){
+   float tt1, tt2, lnx, sgn;
+   sgn = (x < 0) ? -1.0f : 1.0f;
+
+   x = (1 - x)*(1 + x);        // x = 1 - x*x;
+   lnx = logf(x);
+
+   tt1 = 2/(M_PI*0.147) + 0.5f * lnx;
+   tt2 = 1/(0.147) * lnx;
+
+   return(sgn*sqrtf(-tt1 + sqrtf(tt1*tt1 - tt2)));
+}
+
+/* Beckmann Distribution for Microfacet Model (Mitsuba Version but in world coordinate) */
+
+// sn is the surface normal, n is the sampled normal. Assume they are both normalized.
+inline float BechmannEval(const Vec3f& sn, const Vec3f& n, const float alpha) {
+	if (dot(sn, n) <= 0)
+            return 0.0f;
+
+	float cosTheta2 = dot(sn, n) * dot(sn, n);
+	float beckmannExponent = ((1 - cosTheta2) / (alpha * alpha)) / cosTheta2;
+	// float beckmannExponent = ((sn.x*sn.x) / (alpha * alpha)
+	// 		+ (m.y*m.y) / (alpha * alpha)) / cosTheta2;
+
+	float result;
+	/* Beckmann distribution function for Gaussian random surfaces - [Walter 2005] evaluation */
+	result = exp(-beckmannExponent) /
+		(M_PI * alpha * alpha * cosTheta2 * cosTheta2);
+
+	/* Prevent potential numerical issues in other stages of the model */
+	if (result * dot(sn, n) < 1e-20f)
+		result = 0;
+
+	return result;
+}
+
+/* Smith's shadowing-masking function G1 for each of the supported microfacet distributions */
+// n is a sampled microfacet normal, v is an arbitrary vector
+inline float smithG1(const Vec3f& sn, const Vec3f& n, const float alpha, const Vec3f& v) {
+	/* Ensure consistent orientation (can't see the back
+		of the microfacet from the front and vice versa) */
+	if (dot(v, n) * dot(v, sn) <= 0)
+		return 0.0f;
+
+	/* Perpendicular incidence -- no shadowing/masking */
+	float sinTheta = length(cross(v, sn));
+	float cosTheta = dot(v, sn);
+	float tanTheta = abs(sinTheta/cosTheta);
+	if (tanTheta == 0.0f)
+		return 1.0f;
+
+	float a = 1.0f / (alpha * tanTheta);
+	if (a >= 1.6f)
+		return 1.0f;
+
+	/* Use a fast and accurate (<0.35% rel. error) rational
+		approximation to the shadowing-masking function */
+	float aSqr = a*a;
+	return (3.535f * a + 2.181f * aSqr)
+			/ (1.0f + 2.276f * a + 2.577f * aSqr);
+}
+
+/* Draw a sample from the distribution of visible normals */
+inline Vec3f sampleVisible(const Vec3f& sn, const Vec3f &_wi, const float alpha, const Vec2f &sample) {
+	/* Step 1: stretch wi */
+	ONBf onb;
+	onb.build_from_w(sn);
+    Vec3f wi = onb.toLocal(_wi);
+	wi = normalize(Vec3f(
+		alpha * wi.x,
+		alpha * wi.y,
+		wi.z
+	));
+
+	/* Get polar coordinates */
+	float theta = 0, phi = 0;
+	if (wi.z < (float) 0.99999) {
+		theta = std::acos(wi.z);
+		phi = std::atan2(wi.y, wi.x);
+	}
+	float sinPhi = std::sin(phi);
+	float cosPhi = std::cos(phi);
+
+	/* Step 2: simulate P22_{wi}(slope.x, slope.y, 1, 1) */
+	Vec2f slope;
+	{
+        const float SQRT_PI_INV = 1 / std::sqrt(M_PI);
+
+        /* Special case (normal incidence) */
+		if (theta < 1e-4f) {
+			float sinPhi = sin(2 * M_PI * sample.y);
+			float cosPhi = cos(2 * M_PI * sample.y);
+			float r = std::sqrt(-log(1.0f-sample.x));
+			slope = Vec2f(r * cosPhi, r * sinPhi);
+		} else {
+			/* The original inversion routine from the paper contained
+				discontinuities, which causes issues for QMC integration
+				and techniques like Kelemen-style MLT. The following code
+				performs a numerical inversion with better behavior */
+			float tanThetaI = std::tan(theta);
+			float cotThetaI = 1 / tanThetaI;
+
+			/* Search interval -- everything is parameterized
+				in the erf() domain */
+			float a = -1, c = erf(cotThetaI);
+			float sample_x = std::max(sample.x, (float) 1e-6f);
+
+			/* Start with a good initial guess */
+			//Float b = (1-sample_x) * a + sample_x * c;
+
+			/* We can do better (inverse of an approximation computed in Mathematica) */
+			float fit = 1 + theta*(-0.876f + theta * (0.4265f - 0.0594f*theta));
+			float b = c - (1+c) * std::pow(1-sample_x, fit);
+
+			/* Normalization factor for the CDF */
+			float normalization = 1 / (1 + c + SQRT_PI_INV*
+				tanThetaI*std::exp(-cotThetaI*cotThetaI));
+
+			int it = 0;
+			while (++it < 10) {
+				/* Bisection criterion -- the oddly-looking
+					boolean expression are intentional to check
+					for NaNs at little additional cost */
+				if (!(b >= a && b <= c))
+					b = 0.5f * (a + c);
+
+				/* Evaluate the CDF and its derivative
+					(i.e. the density function) */
+				float invErf = erfinv(b);
+				float value = normalization*(1 + b + SQRT_PI_INV*
+					tanThetaI*std::exp(-invErf*invErf)) - sample_x;
+				float derivative = normalization * (1
+					- invErf*tanThetaI);
+
+				if (std::abs(value) < 1e-5f)
+					break;
+
+				/* Update bisection intervals */
+				if (value > 0)
+					c = b;
+				else
+					a = b;
+
+				b -= value / derivative;
+			}
+
+			/* Now convert back into a slope value */
+			slope.x = erfinv(b);
+
+			/* Simulate Y component */
+			slope.y = erfinv(2.0f*std::max(sample.y, (float) 1e-6f) - 1.0f);
+		}
+    }
+
+	/* Step 3: rotate */
+	slope = Vec2f(
+		cosPhi * slope.x - sinPhi * slope.y,
+		sinPhi * slope.x + cosPhi * slope.y);
+
+	/* Step 4: unstretch */
+	slope.x *= alpha;
+	slope.y *= alpha;
+
+	/* Step 5: compute normal */
+	float normalization = (float) 1 / std::sqrt(slope.x*slope.x
+			+ slope.y*slope.y + (float) 1.0);
+
+	return Vec3f(
+		-slope.x * normalization,
+		-slope.y * normalization,
+		normalization
+	);
+}
+
 bool Layered::scatter(const Ray3f &ray, const HitInfo &hit, const Vec2f &sample, Color3f &attenuation, Ray3f &scattered) const
 {
 	return false;
@@ -550,15 +749,314 @@ bool Layered::scatter(const Ray3f &ray, const HitInfo &hit, const Vec2f &sample,
 
 bool Layered::sample(const Vec3f & dirIn, const HitInfo &hit, const Vec2f &sample, ScatterRecord &srec) const
 {
-	return false;
+	/* Constants */
+	Vec3f wi = normalize(-dirIn);
+	Vec3f n = normalize(hit.sn);
+
+	if (dot(wi, n) < 0)
+		return false;
+
+	/* Evaluate the adding method to get coeffs and variances */
+	Color3f* coeffs = new Color3f[nb_layers];
+	float* alphas = new float[nb_layers];
+	int nb_valid = 0;
+	float normalProj = dot(wi, n);
+	computeAddingDoubling(normalProj, coeffs, alphas, nb_valid);
+
+	/* Convert Spectral coefficients to floats to select BRDF lobe to sample */
+	float* weights = new float[nb_valid];
+	float cum_w = 0.0;
+	for(int i=0; i<nb_valid; ++i) {
+		weights[i] = avg(coeffs[i]);
+		cum_w += weights[i];
+	}
+
+	/* Select a random BRDF lobe */
+	float sel_w = sample.x * cum_w - weights[0];
+	int   sel_i = 0;
+	for(sel_i=0; sel_w>0.0 && sel_i<nb_valid; sel_i++) {
+		sel_w -= weights[sel_i+1];
+	}
+
+	/* Sample a microfacet normal */
+	Vec3f m = sampleVisible(n, wi, alphas[sel_i], Vec2f(randf(), randf()));
+
+	delete[] coeffs;
+	delete[] alphas;
+	delete[] weights;
+
+	/* Perfect specular reflection based on the microfacet normal */
+	srec.scattered = reflect(-wi, m);
+	if(dot(srec.scattered, n) <= 0.0f) {
+		return false;
+	}
+
+	srec.isSpecular = false;
+	// not used by Monte Carlo path tracer
+	srec.attenuation = Vec3f(1.f, 1.f, 1.f);
+
+	// bRec.eta = 1.0f;
+	// bRec.sampledComponent = 0;
+	// bRec.sampledType = EGlossyReflection;
 }
 
 Color3f Layered::eval(const Vec3f & dirIn, const Vec3f & scattered, const HitInfo & hit) const
 {
-	return Color3f(0.f, 0.f, 0.f);
+	/* Constants */
+	Vec3f wi = normalize(-dirIn);
+	Vec3f wo = normalize(scattered);
+	Vec3f n = normalize(hit.sn);
+	Vec3f H = normalize(wo+wi);
+
+	/* Result */
+	Color3f f(0.0f);
+
+	/* Evaluate the adding method to get coeffs and variances */
+	Color3f* coeffs = new Color3f[nb_layers];
+	float* alphas = new float[nb_layers];
+	int nb_valid = 0;
+	float normalProj = dot(wi, n);
+	computeAddingDoubling(normalProj, coeffs, alphas, nb_valid);
+
+	/* Sum the contribution of all the interfaces */
+	for(int index=0; index<nb_valid; ++index) {
+		// Skip zero contributions
+		if(length(coeffs[index]) == 0) {
+			continue;
+		}
+
+		// Fetch current roughness
+		const float a = alphas[index];
+
+		// Evaluate microfacet model
+		const float D = BechmannEval(n, H, a);
+		const float G = smithG1(n, H, a, wi) * smithG1(n, H, a, wo);
+
+		// Add to the contribution
+		f += D*G * coeffs[index] / (4.0f * dot(wi, n));
+	}
+
+	delete[] coeffs;
+	delete[] alphas;
+
+	return f;
 }
 
 float Layered::pdf(const Vec3f & dirIn, const Vec3f & scattered, const HitInfo & hit) const
 {
-	return 1.0f;
+	Vec3f wi = normalize(-dirIn);
+	Vec3f wo = normalize(scattered);
+	Vec3f n = normalize(hit.sn);
+
+	if (dot(wi, n) <= 0 || dot(wo, n) <= 0)
+		return 0.0f;
+
+	/* Calculate the reflection half-vector */
+	Vec3f H = normalize(wo + wi);
+
+	/* Evaluate the adding method to get coeffs and variances */
+	Color3f* coeffs = new Color3f[nb_layers];
+	float* alphas = new float[nb_layers];
+	int nb_valid = 0;
+
+	float normalProj = dot(wi, n);
+	computeAddingDoubling(normalProj, coeffs, alphas, nb_valid);
+
+	/* Convert Spectral coefficients to float for pdf weighting */
+	float pdf = 0.0;
+	float cum_w = 0.0;
+	for(int i=0; i<nb_valid; ++i) {
+		// Skip zero contributions
+		if(length(coeffs[i]) == 0) {
+			continue;
+		}
+
+		/* Evlaluate weight */
+		auto weight = avg(coeffs[i]);
+		cum_w += weight;
+
+		/* Use Beckmann as NDF */
+
+		/* Evaluate the pdf */
+		float DG = BechmannEval(n, H, alphas[i]) * smithG1(n, H, alphas[i], wo) / (4.0f * dot(wi, n));
+		pdf += weight * DG;
+	}
+
+	delete[] coeffs;
+	delete[] alphas;
+	
+	if(cum_w > 0.0f) {
+		return pdf / cum_w;
+	} else {
+		return 0.0f;
+	}
+}
+
+void Layered::evalFresnel(float ct, float alpha, const Color3f& eta, const Color3f& kappa, Color3f& Rij, Color3f& Tij) const
+{
+	Rij = m_FGD(ct, alpha, eta, kappa);
+	Tij = (length(kappa) == 0) ? Color3f(1.0) - Rij : Color3f(0.0);
+}
+
+void Layered::computeAddingDoubling(float _cti, Color3f* coeffs, float* alphas, int& nb_valid) const
+{
+	// Variables
+	float cti  = _cti;
+	Color3f R0i(0.0f), Ri0(0.0f), T0i(1.0f), Ti0(1.0f);
+	float s_r0i = 0.0f, s_ri0=0.0f, s_t0i=0.0f, s_ti0=0.0f;
+	float j0i=1.0f, ji0=1.0f;
+
+	// Iterate over the layers
+	for(int i=0; i<nb_layers; ++i) {
+
+		/* Extract layer data */
+		Color3f eta_1   = m_etas[i];
+		Color3f eta_2   = m_etas[i+1];
+		Color3f kappa_2 = m_kappas[i+1];
+		Color3f eta     = eta_2 / eta_1;
+		Color3f kappa   = kappa_2 / eta_1;
+		float alpha      = m_alphas[i];
+		float n12        = avg(eta);
+		float depth      = m_depths[i];
+
+		Color3f R12, T12, R21, T21;
+		float s_r12=0.0f, s_r21=0.0f, s_t12=0.0f, s_t21=0.0f, j12=1.0f, j21=1.0f, ctt;
+		if(depth > 0.0f) {
+			/* Mean doesn't change with volumes */
+			ctt = cti;
+
+			/* Evaluate transmittance */
+			const float sigma_t = m_sigma_a[i] + m_sigma_s[i];
+			T12 = (Color3f(1.0f) + m_sigma_s[i]*depth/ctt) * exp(- (depth/ctt) * sigma_t);
+			T21 = T12;
+			R12 = Color3f(0.0f);
+			R21 = Color3f(0.0f);
+
+			/* Fetch precomputed variance for HG phase function */
+			s_t12 = alpha;
+			s_t21 = alpha;
+
+		} else {
+			/* Evaluate off-specular transmission */
+			float sti = sqrt(1.0f - cti*cti);
+			float stt = sti / n12;
+			if(stt <= 1.0f) {
+				//const float scale = _clamp<float>((1.0f-alpha)*(sqrt(1.0f-alpha) + alpha), 0.0f, 1.0f);
+				//stt = scale*stt + (1.0f-scale)*sti;
+				ctt = sqrt(1.0f - stt*stt);
+			} else {
+				ctt = -1.0f;
+			}
+
+			/* Ray is not block by conducting interface or total reflection */
+			const bool has_transmissive = ctt > 0.0f && length(kappa) == 0;
+
+			/* Evaluate interface variance term */
+			s_r12 = roughnessToVariance(alpha);
+			s_r21 = s_r12;
+
+			/* For dielectric interfaces, evaluate the transmissive roughnesses */
+			if(has_transmissive) {
+				const float _ctt = 1.0f; // The scaling factor overblurs the BSDF at grazing
+				const float _cti = 1.0f; // angles (we cannot account for the deformation of
+											// the lobe for those configurations.
+
+				s_t12 = roughnessToVariance(alpha * 0.5f * fabs(_ctt*n12 - _cti)/(_ctt*n12));
+				s_t21 = roughnessToVariance(alpha * 0.5f * fabs(_cti/n12 - _ctt)/(_cti/n12));
+					j12 = (ctt/cti) * n12; // Scale due to the interface
+					j21 = (cti/ctt) / n12;
+			}
+
+			/* Evaluate FGD using a modified roughness accounting for top layers */
+			auto temp_alpha = varianceToRoughness(s_t0i + s_r12);
+
+			/* Evaluate r12, r21, t12, t21 */
+			evalFresnel(cti, temp_alpha, eta, kappa, R12, T12);
+			if(has_transmissive) {
+				R21 = R12;
+				T21 = T12 /* (n12*n12) */; // We don't need the IOR scaling since we are
+				T12 = T12 /* (n12*n12) */; // computing reflectance only here.
+			} else {
+				R21 = Color3f(0.0f);
+				T21 = Color3f(0.0f);
+				T12 = Color3f(0.0f);
+			}
+
+			/* Evaluate TIR using the decoupling approximation */
+			// if(i > 0 && m_useTIR) {
+			// 	Color3f eta_0   = (i==0) ? m_etas[0] : m_etas[i-1];
+			// 	float n10        = avg(eta_0/eta_1);
+
+			// 	const float _TIR  = m_TIR(cti, temp_alpha, n10);
+			// 	Ri0 += (1.0f-_TIR) * Ti0;
+			// 	for(int llid=0; llid<3; ++llid) { Ri0[llid] = fmin(Ri0[llid], 1.0f); }
+			// 	Ti0 *= _TIR;
+			// }
+		}
+
+		/* Multiple scattering forms */
+		const Color3f denom = (Color3f(1.0f) - Ri0*R12);
+		const Color3f m_R0i = (avg(denom) <= 0.0f)? Color3f(0.0f) : (T0i*R12*Ti0) / denom;
+		const Color3f m_Ri0 = (avg(denom) <= 0.0f)? Color3f(0.0f) : (T21*Ri0*T12) / denom;
+		const Color3f m_Rr  = (avg(denom) <= 0.0f)? Color3f(0.0f) : (Ri0*R12) / denom;
+		
+		/* Evaluate the adding operator on the energy */
+		const Color3f e_R0i = R0i + m_R0i;
+		const Color3f e_T0i = (T0i*T12) / denom;
+		const Color3f e_Ri0 = R21 + m_Ri0;
+		const Color3f e_Ti0 = (T21*Ti0) / denom;
+
+		/* Scalar forms for the spectral quantities */
+		const float r0i   = avg(R0i);
+		const float e_r0i = avg(e_R0i);
+		const float e_ri0 = avg(e_Ri0);
+		const float m_r0i = avg(m_R0i);
+		const float m_ri0 = avg(m_Ri0);
+		const float m_rr  = avg(m_Rr);
+		const float r21   = avg(R21);
+
+		/* Evaluate the adding operator on the normalized variance */
+		float _s_r0i = (r0i*s_r0i + m_r0i*(s_ti0 + j0i*(s_t0i + s_r12 + m_rr*(s_r12+s_ri0)))) ;// e_r0i;
+		float _s_t0i = j12*s_t0i + s_t12 + j12*(s_r12 + s_ri0)*m_rr;
+		float _s_ri0 = (r21*s_r21 + m_ri0*(s_t12 + j12*(s_t21 + s_ri0 + m_rr*(s_r12+s_ri0)))) ;// e_ri0;
+		float _s_ti0 = ji0*s_t21 + s_ti0 + ji0*(s_r12 + s_ri0)*m_rr;
+		_s_r0i = (e_r0i > 0.0f) ? _s_r0i/e_r0i : 0.0f;
+		_s_ri0 = (e_ri0 > 0.0f) ? _s_ri0/e_ri0 : 0.0f;
+
+		/* Store the coefficient and variance */
+		if(m_r0i > 0.0f) {
+			coeffs[i] = m_R0i;
+			alphas[i] = varianceToRoughness(s_ti0 + j0i*(s_t0i + s_r12 + m_rr*(s_r12+s_ri0)));
+		} else {
+			coeffs[i] = Color3f(0.0f);
+			alphas[i] = 0.0f;
+		}
+
+		/* Update energy */
+		R0i = e_R0i;
+		T0i = e_T0i;
+		Ri0 = e_Ri0;
+		Ti0 = e_Ti0;
+
+		/* Update mean */
+		cti = ctt;
+
+		/* Update variance */
+		s_r0i = _s_r0i;
+		s_t0i = _s_t0i;
+		s_ri0 = _s_ri0;
+		s_ti0 = _s_ti0;
+
+		/* Update jacobian */
+		j0i *= j12;
+		ji0 *= j21;
+
+		/* Escape if a conductor is present */
+		if(avg(kappa) > 0.0f) {
+			nb_valid = i+1;
+			return;
+		}
+	}
+
+	nb_valid = nb_layers;
 }

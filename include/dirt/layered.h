@@ -124,6 +124,14 @@ struct FGD {
        return v;
     }
 
+    Color3f operator() (float t, float a, const Color3f& n, const Color3f& k) const {
+       Color3f s;
+       for(int i=0; i<3; ++i) {
+          s[i] = (*this)(t, a, n[i], k[i]);
+       }
+       return s;
+    }
+
     std::vector<float> buff;
     int sizes[4];
     int Nt, Na, Nn, Nk;

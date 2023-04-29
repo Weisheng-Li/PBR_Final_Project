@@ -12,6 +12,7 @@ struct ONB
 
     Vec3 operator[](int i) const { return axis[i]; }
     Vec3 toWorld(const Vec3& a) const { return a.x*u + a.y*v + a.z*w; }
+    Vec3 toLocal(const Vec3& a) const { return Vec3(dot(a,u), dot(a,v), dot(a,w)); };
     void build_from_w(const Vec3&);
 
     union
