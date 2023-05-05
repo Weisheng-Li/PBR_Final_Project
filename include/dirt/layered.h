@@ -13,7 +13,7 @@
 struct FGD {
     FGD() {}
     FGD(const std::string path) {
-        std::ifstream in(path);
+        std::ifstream in(path, std::ios::binary);
         // Warn if not loaded
         if(in.bad() || in.fail()) {
             std::cout << "Unable to load FGD file." << std::endl;
@@ -54,6 +54,9 @@ struct FGD {
         const int size = Nt*Na*Nn*Nk;
         buff.assign(size, 0.0f);
         in.read((char*)buff.data(), size*sizeof(float));
+        if (!in)
+            std::cout << "error: only " << in.gcount() << " could be read";
+        in.close();
     }
 
     inline float operator() (float t, float a, float n, float k) const {

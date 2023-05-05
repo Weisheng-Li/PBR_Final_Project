@@ -513,8 +513,8 @@ Layered::Layered(const json & j) {
 	nb_layers = j.value("nb_layers", 1);
 
 	// Add the external IOR (air)
-	m_etas.push_back(Color3f(1.f));
-	m_etas.push_back(Color3f(0.f));
+	m_etas.push_back(Color3f(1.000277f));
+	m_kappas.push_back(Color3f(0.f));
 
 	for (auto it = j["layers"].begin(); it != j["layers"].end(); it++) {
 		Color3f eta_k = it.value().value("eta", Color3f(1.0f));
@@ -544,22 +544,11 @@ Layered::Layered(const json & j) {
 }
 
 /* Roughness to linear space conversions */
-//#define USE_BEST_FIT
 inline float roughnessToVariance(float a) {
-#ifdef USE_BEST_FIT
-   a = _clamp<float>(a, 0.0, 0.9999);
-   float a3 = powf(a, 1.1);
-   return a3 / (1.0f - a3);
-#else
    return a / (1.0f-a);
-#endif
 }
 inline float varianceToRoughness(float v) {
-#ifdef USE_BEST_FIT
-   return powf(v / (1.0f + v), 1.0f/1.1f);
-#else
    return v / (1.0f+v);
-#endif
 }
 
 inline float avg(const Color3f& color) {
@@ -589,8 +578,6 @@ inline float BechmannEval(const Vec3f& sn, const Vec3f& n, const float alpha) {
 
 	float cosTheta2 = dot(sn, n) * dot(sn, n);
 	float beckmannExponent = ((1 - cosTheta2) / (alpha * alpha)) / cosTheta2;
-	// float beckmannExponent = ((sn.x*sn.x) / (alpha * alpha)
-	// 		+ (m.y*m.y) / (alpha * alpha)) / cosTheta2;
 
 	float result;
 	/* Beckmann distribution function for Gaussian random surfaces - [Walter 2005] evaluation */
@@ -636,6 +623,7 @@ inline Vec3f sampleVisible(const Vec3f& sn, const Vec3f &_wi, const float alpha,
 	ONBf onb;
 	onb.build_from_w(sn);
     Vec3f wi = onb.toLocal(_wi);
+
 	wi = normalize(Vec3f(
 		alpha * wi.x,
 		alpha * wi.y,
@@ -658,10 +646,10 @@ inline Vec3f sampleVisible(const Vec3f& sn, const Vec3f &_wi, const float alpha,
 
         /* Special case (normal incidence) */
 		if (theta < 1e-4f) {
-			float sinPhi = sin(2 * M_PI * sample.y);
-			float cosPhi = cos(2 * M_PI * sample.y);
+			float sine = sin(2 * M_PI * sample.y);
+			float cosine = cos(2 * M_PI * sample.y);
 			float r = std::sqrt(-log(1.0f-sample.x));
-			slope = Vec2f(r * cosPhi, r * sinPhi);
+			slope = Vec2f(r * cosine, r * sine);
 		} else {
 			/* The original inversion routine from the paper contained
 				discontinuities, which causes issues for QMC integration
@@ -735,11 +723,14 @@ inline Vec3f sampleVisible(const Vec3f& sn, const Vec3f &_wi, const float alpha,
 	float normalization = (float) 1 / std::sqrt(slope.x*slope.x
 			+ slope.y*slope.y + (float) 1.0);
 
-	return Vec3f(
+	Vec3f result = Vec3f(
 		-slope.x * normalization,
 		-slope.y * normalization,
 		normalization
 	);
+
+	// Convert back go global coordinate
+	return normalize(onb.toWorld(result));
 }
 
 bool Layered::scatter(const Ray3f &ray, const HitInfo &hit, const Vec2f &sample, Color3f &attenuation, Ray3f &scattered) const
@@ -753,8 +744,9 @@ bool Layered::sample(const Vec3f & dirIn, const HitInfo &hit, const Vec2f &sampl
 	Vec3f wi = normalize(-dirIn);
 	Vec3f n = normalize(hit.sn);
 
-	if (dot(wi, n) < 0)
+	if (dot(wi, n) < 0) {
 		return false;
+	}
 
 	/* Evaluate the adding method to get coeffs and variances */
 	Color3f* coeffs = new Color3f[nb_layers];
@@ -792,12 +784,10 @@ bool Layered::sample(const Vec3f & dirIn, const HitInfo &hit, const Vec2f &sampl
 	}
 
 	srec.isSpecular = false;
-	// not used by Monte Carlo path tracer
+	// not used by Monte Carlo path tracer，just set to 1
 	srec.attenuation = Vec3f(1.f, 1.f, 1.f);
 
-	// bRec.eta = 1.0f;
-	// bRec.sampledComponent = 0;
-	// bRec.sampledType = EGlossyReflection;
+	return true;
 }
 
 Color3f Layered::eval(const Vec3f & dirIn, const Vec3f & scattered, const HitInfo & hit) const
@@ -941,8 +931,6 @@ void Layered::computeAddingDoubling(float _cti, Color3f* coeffs, float* alphas, 
 			float sti = sqrt(1.0f - cti*cti);
 			float stt = sti / n12;
 			if(stt <= 1.0f) {
-				//const float scale = _clamp<float>((1.0f-alpha)*(sqrt(1.0f-alpha) + alpha), 0.0f, 1.0f);
-				//stt = scale*stt + (1.0f-scale)*sti;
 				ctt = sqrt(1.0f - stt*stt);
 			} else {
 				ctt = -1.0f;
@@ -974,24 +962,13 @@ void Layered::computeAddingDoubling(float _cti, Color3f* coeffs, float* alphas, 
 			evalFresnel(cti, temp_alpha, eta, kappa, R12, T12);
 			if(has_transmissive) {
 				R21 = R12;
-				T21 = T12 /* (n12*n12) */; // We don't need the IOR scaling since we are
-				T12 = T12 /* (n12*n12) */; // computing reflectance only here.
+				T21 = T12 ; // We don't need the IOR scaling since we are
+				T12 = T12 ; // computing reflectance only here.
 			} else {
 				R21 = Color3f(0.0f);
 				T21 = Color3f(0.0f);
 				T12 = Color3f(0.0f);
 			}
-
-			/* Evaluate TIR using the decoupling approximation */
-			// if(i > 0 && m_useTIR) {
-			// 	Color3f eta_0   = (i==0) ? m_etas[0] : m_etas[i-1];
-			// 	float n10        = avg(eta_0/eta_1);
-
-			// 	const float _TIR  = m_TIR(cti, temp_alpha, n10);
-			// 	Ri0 += (1.0f-_TIR) * Ti0;
-			// 	for(int llid=0; llid<3; ++llid) { Ri0[llid] = fmin(Ri0[llid], 1.0f); }
-			// 	Ti0 *= _TIR;
-			// }
 		}
 
 		/* Multiple scattering forms */
